@@ -29,7 +29,7 @@ def visualize_clusters(df, centers):
 
     for _, row in df.iterrows():
         folium.Marker(
-            location=[row['Latitude'], row['Longitude']],
+            location=[row['Latitude'], row['Longitude']],  # Fixed here: Access columns separately
             icon=folium.Icon(icon='record', color='red'),
         ).add_to(marker_cluster)
 
@@ -42,29 +42,8 @@ def visualize_clusters(df, centers):
 
     return map
 
-# Main function to display the patrolling map
-def patrolling_main():
-    data = load_data()
-    if data.empty:
-        st.error("Failed to load data")
-        return
-
-    st.title('Patrolling Map')
-    data.dropna(subset=['Latitude', 'Longitude'], inplace=True)
-    df = data.drop_duplicates(subset=['Latitude', 'Longitude', 'CrimeHead_Name'])
-    
-    clusters = st.slider('Select number of clusters', min_value=3, max_value=20, value=10, step=1)
-    df, centers = apply_kmeans(df, clusters)
-    
-    if len(df) > 10000:  # Limiting the number of markers to avoid overloading the browser
-        df_sample = df.sample(n=10000)
-    else:
-        df_sample = df
-    
-    crime_map = visualize_clusters(df_sample, centers)
-    folium_static(crime_map)
-
-@st.cache_data(show_spinner=True)
+# Function to load data from S3
+@st.cache_data(show_spinner=False)
 def load_data():
     bucket_name = 'new-trail01'
     file_key = 'FIR_Details_Data.csv'
@@ -77,9 +56,34 @@ def load_data():
     if status == 200:
         csv_content = response["Body"].read().decode('utf-8')
         df = pd.read_csv(StringIO(csv_content))
+        # Filter data to include only necessary columns
+        df = df[['Latitude', 'Longitude', 'CrimeHead_Name']]
+        # Convert to more memory-efficient data types
+        df['Latitude'] = df['Latitude'].astype('float32')
+        df['Longitude'] = df['Longitude'].astype('float32')
         return df
     else:
         return pd.DataFrame()  # Return an empty DataFrame in case of failure
+
+# Main function to display the patrolling map
+def patrolling_main():
+    fir_data = load_data()
+    if fir_data.empty:
+        st.error("Failed to load data")
+        return
+
+    st.title('Patrolling Map')
+    fir_data.dropna(subset=['Latitude', 'Longitude'], inplace=True)
+    df = fir_data.drop_duplicates(subset=['Latitude', 'Longitude', 'CrimeHead_Name'])
+    
+    clusters = st.slider('Select number of clusters', min_value=3, max_value=20, value=10, step=1)
+    df, centers = apply_kmeans(df, clusters)
+    
+    # Limit the number of markers to avoid overloading the browser
+    df_sample = df.sample(n=min(len(df), 10000))
+    
+    crime_map = visualize_clusters(df_sample, centers)
+    folium_static(crime_map)
 
 if __name__ == '__main__':
     patrolling_main()
